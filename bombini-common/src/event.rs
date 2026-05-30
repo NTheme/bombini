@@ -36,7 +36,7 @@ pub enum Event {
     /// Kernel event type
     Kernel(kernel::KernelMsg) = 7,
     /// System enumeration event type
-    SysEnum(sysenum::SysEnumMonMsg) = 33,
+    SysEnum(sysenum::SysEnumMsg) = 33,
 }
 
 // Event message codes

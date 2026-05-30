@@ -4,6 +4,7 @@ use anyhow::anyhow;
 use std::sync::Arc;
 
 use bombini_common::event::Event;
+use bombini_common::event::sysenum::ChainItemType;
 
 use serde::Serialize;
 
@@ -15,14 +16,8 @@ use super::{
 #[serde(tag = "type")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum ChainEntryType {
-    Exec {
-        process: Arc<Process>,
-        binary: String,
-    },
-    FileOpen {
-        process: Arc<Process>,
-        path: String,
-    },
+    Exec { binary: String },
+    FileOpen { path: String },
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -36,13 +31,15 @@ pub struct ChainEntry {
 #[serde(tag = "type")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct SysEnumMonEvent {
+    pub process: Arc<Process>,
     pub chain: Vec<ChainEntry>,
     pub timestamp: String,
 }
 
 impl SysEnumMonEvent {
-    pub fn new(chain: Vec<ChainEntry>, ktime: u64) -> Self {
+    pub fn new(process: Arc<Process>, chain: Vec<ChainEntry>, ktime: u64) -> Self {
         Self {
+            process,
             chain,
             timestamp: transmute_ktime(ktime),
         }
@@ -61,32 +58,32 @@ impl Transmuter for SysEnumMonEventTransmuter {
         let Event::SysEnum(event) = event else {
             return Err(anyhow!("Unexpected event variant"));
         };
+        let process = process_cache
+            .get(&event.process)
+            .ok_or_else(|| anyhow!("parent process is not in cache"))?
+            .process
+            .clone();
         let chain_len = (event.chain_len as usize).min(event.chain.len());
         let chain = event
             .chain
             .iter()
             .take(chain_len)
-            .filter_map(|item| {
-                let process = process_cache.get(&item.process)?.process.clone();
-                let name = str_from_bytes(&item.name);
-                let entry = if item.file_open {
-                    ChainEntryType::FileOpen {
-                        process,
-                        path: name,
-                    }
-                } else {
-                    ChainEntryType::Exec {
-                        process,
-                        binary: name,
-                    }
+            .map(|item| {
+                let entry = match item.entry {
+                    ChainItemType::Exec(name) => ChainEntryType::Exec {
+                        binary: str_from_bytes(&name),
+                    },
+                    ChainItemType::FileOpen(path) => ChainEntryType::FileOpen {
+                        path: str_from_bytes(&path),
+                    },
                 };
-                Some(ChainEntry {
+                ChainEntry {
                     entry,
                     timestamp: transmute_ktime(item.timestamp_ns),
-                })
+                }
             })
             .collect();
-        let high_level_event = SysEnumMonEvent::new(chain, ktime);
+        let high_level_event = SysEnumMonEvent::new(process, chain, ktime);
         Ok(serde_json::to_vec(&high_level_event)?)
     }
 }

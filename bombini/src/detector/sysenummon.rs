@@ -6,7 +6,6 @@ use aya::maps::lpm_trie::{Key, LpmTrie};
 use aya::programs::Lsm;
 use aya::{Btf, Ebpf, EbpfError, EbpfLoader};
 
-use bombini_common::config::rule::{FileNameMapKey, PathMapKey, PathPrefixMapKey};
 use bombini_common::config::sysenummon::SysEnumMonKernelConfig;
 use bombini_common::constants::{MAX_FILE_PATH, MAX_FILE_PREFIX, MAX_FILENAME_SIZE};
 
@@ -21,9 +20,9 @@ use super::Detector;
 pub struct SysEnumMon {
     ebpf: Ebpf,
     config: SysEnumMonKernelConfig,
-    names: Vec<(FileNameMapKey, u8)>,
-    paths: Vec<(PathMapKey, u8)>,
-    path_prefixes: Vec<(u32, PathPrefixMapKey, u8)>,
+    names: Vec<([u8; MAX_FILENAME_SIZE], u8)>,
+    paths: Vec<([u8; MAX_FILE_PATH], u8)>,
+    path_prefixes: Vec<(u32, [u8; MAX_FILE_PREFIX], u8)>,
 }
 
 impl SysEnumMon {
@@ -40,13 +39,7 @@ impl SysEnumMon {
             window_ns: config.window_size_sec.saturating_mul(1_000_000_000),
         };
 
-        let mut next_bit: u32 = 0;
-        let take_bit = |bit: &mut u32| -> Result<u8, anyhow::Error> {
-            let b = u8::try_from(*bit)
-                .map_err(|_| anyhow::anyhow!("sysenummon watch-list exceeds 256 unique entries"))?;
-            *bit += 1;
-            Ok(b)
-        };
+        let mut watch_idx: u8 = 0;
 
         let mut names = Vec::new();
         if let Some(ref bprm) = config.bprm_check {
@@ -55,10 +48,8 @@ impl SysEnumMon {
                 let len = bytes.len().min(MAX_FILENAME_SIZE);
                 let mut name = [0u8; MAX_FILENAME_SIZE];
                 name[..len].copy_from_slice(&bytes[..len]);
-                names.push((
-                    FileNameMapKey { rule_idx: 0, name },
-                    take_bit(&mut next_bit)?,
-                ));
+                names.push((name, watch_idx));
+                watch_idx += 1;
             }
         }
 
@@ -70,21 +61,16 @@ impl SysEnumMon {
                 let len = bytes.len().min(MAX_FILE_PATH);
                 let mut path = [0u8; MAX_FILE_PATH];
                 path[..len].copy_from_slice(&bytes[..len]);
-                paths.push((PathMapKey { rule_idx: 0, path }, take_bit(&mut next_bit)?));
+                paths.push((path, watch_idx));
+                watch_idx += 1;
             }
             for s in &open.path_prefix {
                 let bytes = s.as_bytes();
                 let len = bytes.len().min(MAX_FILE_PREFIX);
                 let mut path_prefix = [0u8; MAX_FILE_PREFIX];
                 path_prefix[..len].copy_from_slice(&bytes[..len]);
-                path_prefixes.push((
-                    (len * 8) as u32,
-                    PathPrefixMapKey {
-                        rule_idx: 0,
-                        path_prefix,
-                    },
-                    take_bit(&mut next_bit)?,
-                ));
+                path_prefixes.push(((len * 8) as u32, path_prefix, watch_idx));
+                watch_idx += 1;
             }
         }
 
@@ -118,23 +104,23 @@ impl Detector for SysEnumMon {
             Array::try_from(self.ebpf.map_mut("SYSENUMMON_CONFIG").unwrap())?;
         let _ = config_map.set(0, self.config, 0);
 
-        let mut name_map: EbpfHashMap<_, FileNameMapKey, u8> =
+        let mut name_map: EbpfHashMap<_, [u8; MAX_FILENAME_SIZE], u8> =
             EbpfHashMap::try_from(self.ebpf.map_mut("SYSENUMMON_NAME_MAP").unwrap())?;
-        for (key, bit) in self.names.iter() {
-            let _ = name_map.insert(key, bit, 0);
+        for (key, watch_idx) in self.names.iter() {
+            let _ = name_map.insert(key, watch_idx, 0);
         }
 
-        let mut path_map: EbpfHashMap<_, PathMapKey, u8> =
+        let mut path_map: EbpfHashMap<_, [u8; MAX_FILE_PATH], u8> =
             EbpfHashMap::try_from(self.ebpf.map_mut("SYSENUMMON_PATH_MAP").unwrap())?;
-        for (key, bit) in self.paths.iter() {
-            let _ = path_map.insert(key, bit, 0);
+        for (key, watch_idx) in self.paths.iter() {
+            let _ = path_map.insert(key, watch_idx, 0);
         }
 
-        let mut prefix_map: LpmTrie<_, PathPrefixMapKey, u8> =
+        let mut prefix_map: LpmTrie<_, [u8; MAX_FILE_PREFIX], u8> =
             LpmTrie::try_from(self.ebpf.map_mut("SYSENUMMON_PATH_PREFIX_MAP").unwrap())?;
-        for (prefix_len, key, bit) in self.path_prefixes.iter() {
+        for (prefix_len, key, watch_idx) in self.path_prefixes.iter() {
             let map_key = Key::new(*prefix_len, *key);
-            let _ = prefix_map.insert(&map_key, bit, 0);
+            let _ = prefix_map.insert(&map_key, watch_idx, 0);
         }
         Ok(())
     }
@@ -143,7 +129,7 @@ impl Detector for SysEnumMon {
         let btf = Btf::from_sys_fs()?;
         let bprm: &mut Lsm = self
             .ebpf
-            .program_mut("bprm_check_capture")
+            .program_mut("sysmon_bprm_check")
             .unwrap()
             .try_into()?;
         bprm.load("bprm_check_security", &btf)?;
@@ -151,7 +137,7 @@ impl Detector for SysEnumMon {
 
         let open: &mut Lsm = self
             .ebpf
-            .program_mut("file_open_capture")
+            .program_mut("sysmon_file_open")
             .unwrap()
             .try_into()?;
         open.load("file_open", &btf)?;
@@ -160,6 +146,6 @@ impl Detector for SysEnumMon {
     }
 
     fn min_kenrel_verison(&self) -> Version {
-        Version::new(6, 8, 0)
+        Version::new(6, 2, 0)
     }
 }

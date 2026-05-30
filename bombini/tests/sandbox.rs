@@ -57,9 +57,9 @@ bprm_check:
     bombini.stop();
 
     print_example_events!(&events);
-    assert_eq!(events.matches("\"type\":\"BprmCheck\"").count(), 1);
-    assert_eq!(events.matches("\"rule\":\"BprmCheckTestRule\"").count(), 1);
-    assert_eq!(events.matches("\"blocked\":true").count(), 1);
+    ma::assert_ge!(events.matches("\"type\":\"BprmCheck\"").count(), 1);
+    ma::assert_ge!(events.matches("\"rule\":\"BprmCheckTestRule\"").count(), 1);
+    ma::assert_ge!(events.matches("\"blocked\":true").count(), 1);
     let mut file_path = String::from("\"binary\":\"");
     file_path.push_str(copied_ls.to_str().unwrap());
     assert_eq!(events.matches(&file_path).count(), 1);

@@ -13,12 +13,14 @@ Supported LSM hooks:
 * `file_open` hook observes opened file paths.
 
 Both hooks are always loaded, there is no per-hook enable switch. SysEnumMon depends on
-ProcMon: the process snapshot carried by the alert is restored from the shared
-`PROCMON_PROC_MAP` and the user space Process cache.
+ProcMon: the parent process reported by the alert is restored from the shared
+`PROCMON_PROC_MAP` and the user space Process cache. The same map is used to garbage-collect
+correlation state — once the parent has exited or left the cache, its accumulated chain is
+dropped.
 
 ## Required Linux Kernel Version
 
-6.8 or greater
+6.2 or greater
 
 ## Config Description
 
