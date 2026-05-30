@@ -106,18 +106,21 @@ impl Detector for SysEnumMon {
 
         let mut name_map: EbpfHashMap<_, [u8; MAX_FILENAME_SIZE], u8> =
             EbpfHashMap::try_from(self.ebpf.map_mut("SYSENUMMON_NAME_MAP").unwrap())?;
+        // Populate basename watch list: bprm_check lookups read from here.
         for (key, watch_idx) in self.names.iter() {
             let _ = name_map.insert(key, watch_idx, 0);
         }
 
         let mut path_map: EbpfHashMap<_, [u8; MAX_FILE_PATH], u8> =
             EbpfHashMap::try_from(self.ebpf.map_mut("SYSENUMMON_PATH_MAP").unwrap())?;
+        // Populate exact-path watch list: file_open lookups read from here.
         for (key, watch_idx) in self.paths.iter() {
             let _ = path_map.insert(key, watch_idx, 0);
         }
 
         let mut prefix_map: LpmTrie<_, [u8; MAX_FILE_PREFIX], u8> =
             LpmTrie::try_from(self.ebpf.map_mut("SYSENUMMON_PATH_PREFIX_MAP").unwrap())?;
+        // Populate prefix watch list: file_open does an LPM lookup here.
         for (prefix_len, key, watch_idx) in self.path_prefixes.iter() {
             let map_key = Key::new(*prefix_len, *key);
             let _ = prefix_map.insert(&map_key, watch_idx, 0);

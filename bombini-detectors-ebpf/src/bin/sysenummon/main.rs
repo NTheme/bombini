@@ -31,15 +31,19 @@ static SYSENUMMON_CONFIG: Array<SysEnumMonKernelConfig> = Array::with_max_entrie
 #[map]
 static PROCMON_PROC_MAP: LruHashMap<u32, ProcInfo> = LruHashMap::pinned(1, 0);
 
+/// Per-parent (ppid) correlation state.
 #[map]
 static SYSENUMMON_STATE: LruHashMap<u32, SysEnumMsg> = LruHashMap::with_max_entries(4096, 0);
 
+/// Watched basename -> watch_idx.
 #[map]
 static SYSENUMMON_NAME_MAP: HashMap<[u8; MAX_FILENAME_SIZE], u8> = HashMap::with_max_entries(1, 0);
 
+/// Watched full path -> watch_idx.
 #[map]
 static SYSENUMMON_PATH_MAP: HashMap<[u8; MAX_FILE_PATH], u8> = HashMap::with_max_entries(1, 0);
 
+/// Watched path prefix -> watch_idx (LPM).
 #[map]
 static SYSENUMMON_PATH_PREFIX_MAP: LpmTrie<[u8; MAX_FILE_PREFIX], u8> =
     LpmTrie::with_max_entries(1, 0);
@@ -202,6 +206,7 @@ fn record_hit(
 
     let len = (state.chain_len as usize) & SYSENUMMON_CHAIN_MAX;
 
+    // Skip if this watch_idx is already in the current chain (dedup).
     let mut i = 0;
     while i < len {
         if state.watch_ids[i] == watch_idx {

@@ -5,6 +5,7 @@ use crate::event::process::ProcessKey;
 
 pub const SYSENUMMON_CHAIN_MAX: usize = 15;
 
+/// Single observation in a correlation chain.
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Copy, Debug)]
 #[repr(u8)]
@@ -25,6 +26,7 @@ pub struct ChainItem {
 pub struct SysEnumMsg {
     pub chain_len: u8,
     pub process: ProcessKey,
+    /// Watch-list indices already observed in the current window (deduplication).
     pub watch_ids: [u8; SYSENUMMON_CHAIN_MAX],
     pub chain: [ChainItem; SYSENUMMON_CHAIN_MAX],
 }
