@@ -24,12 +24,11 @@ fn test_6_2_detectors_load() {
     builder
         .detector("procmon", None)
         .detector("filemon", None)
-        .detector("netmon", None);
+        .detector("netmon", None)
+        .detector("sysenummon", None);
 
     if kernel_ver >= ver_6_8 {
-        builder
-            .detector("io_uringmon", None)
-            .detector("sysenummon", None);
+        builder.detector("io_uringmon", None);
     }
 
     let mut bombini = builder.bombini_start_timeout(7).launch().unwrap();
@@ -46,9 +45,9 @@ fn test_6_2_detectors_load() {
     assert!(log.contains("procmon is loaded"));
     assert!(log.contains("filemon is loaded"));
     assert!(log.contains("netmon is loaded"));
+    assert!(log.contains("sysenummon is loaded"));
     if kernel_ver >= ver_6_8 {
         assert!(log.contains("io_uringmon is loaded"));
-        assert!(log.contains("sysenummon is loaded"));
     }
 }
 
@@ -120,7 +119,7 @@ fn test_6_8_io_uringmon() {
 }
 
 #[test]
-fn test_6_8_sysenummon_behavioral() {
+fn test_6_2_sysenummon() {
     let mut bombini = BombiniBuilder::new()
         .detector("procmon", None)
         .detector("sysenummon", None)
